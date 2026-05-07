@@ -1,0 +1,10 @@
+# Core
+pyarrow>=14.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+
+# Data Loading
+datasets>=2.14.0
+
+# Tokenization
+transformers>=4.36.0
