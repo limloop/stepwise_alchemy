@@ -15,6 +15,7 @@ class StageResult:
     num_records: int = 0
     duration_sec: float = 0.0
     finished_at: str = ""
+    languages: Optional[List[str]] = None
 
 
 @dataclass

@@ -13,7 +13,7 @@ from transformers import AutoTokenizer
 
 from core.registry import SourceRegistry
 from core.schemas import AssemblyConfig
-from data_io.parquet import read_parquet, write_parquet
+from data_io.parquet import read_parquet, write_parquet_streaming
 from utils.logging_setup import get_logger
 
 logger = get_logger("pipeline.assembly")
@@ -178,7 +178,7 @@ def _assemble_chat_mode(
     output_path = Path(config.output_dir) / "chat"
     output_path.mkdir(parents=True, exist_ok=True)
 
-    write_parquet(
+    write_parquet_streaming(
         ({"lang": d["lang"], "messages": d["messages"]} for d in filtered),
         str(output_path / "dialogues.parquet"),
     )
@@ -261,7 +261,7 @@ def _assemble_text_mode(
 
         # Запись одним файлом
         if chunks:
-            write_parquet(iter(chunks), str(output_file))
+            write_parquet_streaming(iter(chunks), str(output_file))
             logger.info("Чанки %d токенов: %d записей → %s",
                         chunk_size, len(chunks), output_file)
         else:

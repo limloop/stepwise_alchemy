@@ -3,16 +3,19 @@
 """
 
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from tqdm import tqdm
 
 from core.registry import SourceRegistry
-from core.schemas import SourceMetadata, StageResult
+from core.schemas import StageResult
 from data_io.metadata import load_metadata, save_metadata, is_stage_done
-from data_io.parquet import read_parquet, write_parquet, count_rows
+from data_io.parquet import read_parquet, write_parquet_batch, count_rows, create_parquet_writer
 from cleaners.text_cleaner import clean_text
 from cleaners.validators import is_valid_text, contains_python_code
 from utils.logging_setup import get_logger
@@ -20,137 +23,164 @@ from utils.logging_setup import get_logger
 logger = get_logger("pipeline.clean")
 
 
-def _clean_single_source(
-    source_name: str,
-    registry: SourceRegistry,
-    config: dict,
-    pbar: tqdm | None = None,
-) -> tuple[str, bool, int, int]:
-    """
-    Очищает данные одного источника.
-    Выполняется в отдельном потоке.
+def clean_record(record, source, config):
+    cleaners = config.get("cleaners", {})
+    remove_python = cleaners.get("remove_python_code", True)
+    allowed_langs = set(cleaners.get("allowed_langs", ["ru", "en"]))
 
-    Returns:
-        (source_name, success, num_input, num_output)
-    """
-    cache_root = config.get("cache_root", "cache")
-    cleaners_config = config.get("cleaners", {})
+    lang = record.get("lang", "unknown")
 
-    remove_python = cleaners_config.get("remove_python_code", True)
-    allowed_langs = cleaners_config.get("allowed_langs", ["ru", "en"])
+    if lang not in allowed_langs:
+        return None
+
+    if source.content_type == "dialogue":
+        msgs = record.get("messages", [])
+
+        for msg in msgs:
+            t = msg.get("content", "")
+
+            if not t:
+                continue
+
+            if remove_python and contains_python_code(t):
+                return None
+
+            t = clean_text(t)
+
+            if not is_valid_text(t):
+                return None
+
+            msg["content"] = t
+
+        return {"lang": lang, "messages": msgs}
+
+    else:
+        t = record.get("text", "")
+
+        if not t:
+            return None
+
+        if remove_python and contains_python_code(t):
+            return None
+
+        t = clean_text(t)
+
+        if not is_valid_text(t):
+            return None
+
+        return {"lang": lang, "text": t}
+
+def process_batch(args):
+    batch, source_dict, config = args
+
+    out = []
+
+    for record in batch:
+        cleaned = clean_record(record, source_dict, config)
+        if cleaned:
+            out.append(cleaned)
+
+    return out, len(batch)
+
+def _clean_single_source(source_name, registry, config):
+
+    cache_root = config.get("cache", {}).get("root", "cache")
 
     source = registry.get(source_name)
-    if source is None:
-        logger.error("[%s] Источник не найден в реестре", source_name)
+    if not source:
         return source_name, False, 0, 0
 
-    raw_path = str(Path(cache_root) / source_name / "raw.parquet")
-    cleaned_path = str(Path(cache_root) / source_name / "cleaned.parquet")
+    raw_path = Path(cache_root) / source_name / "raw.parquet"
+    out_path = Path(cache_root) / source_name / "cleaned.parquet"
 
-    logger.info("[%s] Начало очистки...", source_name)
+    parquet = pq.ParquetFile(raw_path)
+
+    workers = config.get("processing", {}).get("max_workers", 4)
+    MAX_IN_FLIGHT = workers * 2
+
+    writer = None
+    buffer = []
+
+    num_in = 0
+    num_out = 0
+    langs = set()
     start_time = time.time()
 
-    num_input = 0
-    num_output = 0
+    futures = deque()
 
-    def generate_cleaned():
-        nonlocal num_input, num_output
+    with ProcessPoolExecutor(max_workers=workers) as executor:
 
-        for record in read_parquet(raw_path):
-            num_input += 1
+        def submit(batch):
+            rows = pa.Table.from_batches([batch]).to_pylist()
+            return executor.submit(process_batch, (rows, source, config)), len(rows)
 
-            # Запись уже в формате {"lang": ..., "messages": ...} или {"lang": ..., "text": ...}
+        batch_iter = parquet.iter_batches(batch_size=5000)
 
-            texts_to_clean = []
+        # initial fill
+        for _ in range(MAX_IN_FLIGHT):
+            try:
+                batch = next(batch_iter)
+            except StopIteration:
+                break
 
-            if source.content_type == "dialogue":
-                messages = record.get("messages", [])
-                for msg in messages:
-                    texts_to_clean.append(msg)  # словарь с ключом "content"
-            elif source.content_type == "text":
-                texts_to_clean.append(record)  # словарь с ключом "text"
+            fut, n = submit(batch)
+            futures.append((fut, n))
 
-            # Очистка каждого текстового поля
-            valid = True
-            for item in texts_to_clean:
-                # Определяем ключ поля
-                field = "content" if source.content_type == "dialogue" else "text"
-                content = item.get(field, "")
+        with tqdm(total=count_rows(str(raw_path)), desc=source_name, unit="rows") as pbar:
 
-                # Проверка на Python-код
-                if remove_python and contains_python_code(content):
-                    logger.debug("[%s] Запись отбракована: найден Python-код", source_name)
-                    valid = False
-                    break
+            while futures:
 
-                # Проверка на валидность языка
-                if not is_valid_text(content):
-                    logger.debug("[%s] Запись отбракована: невалидный текст", source_name)
-                    valid = False
-                    break
+                fut, n_in = futures.popleft()
 
-                # Очистка
-                cleaned = clean_text(content)
-                if not cleaned:
-                    logger.debug("[%s] Запись отбракована: после очистки пусто", source_name)
-                    valid = False
-                    break
+                cleaned_batch, _ = fut.result()
 
-                item[field] = cleaned
+                num_in += n_in
 
-            if not valid:
-                if pbar:
-                    pbar.update(1)
-                continue
+                if cleaned_batch:
 
-            # Языковой фильтр
-            lang = record.get("lang", "unknown")
-            if lang not in allowed_langs:
-                logger.debug("[%s] Запись отбракована: язык '%s' не разрешён", source_name, lang)
-                if pbar:
-                    pbar.update(1)
-                continue
+                    if writer is None:
+                        writer = create_parquet_writer(str(out_path), cleaned_batch[0])
 
-            if source.content_type == "dialogue":
-                yield {"lang": lang, "messages": record["messages"]}
-            elif source.content_type == "text":
-                yield {"lang": lang, "text": record["text"]}
+                    buffer.extend(cleaned_batch)
+                    num_out += len(cleaned_batch)
 
-            num_output += 1
-            if pbar:
-                pbar.update(1)
+                    for r in cleaned_batch:
+                        langs.add(r["lang"])
 
-    try:
-        written = write_parquet(generate_cleaned(), cleaned_path)
-        duration = time.time() - start_time
+                    if len(buffer) >= 5000:
+                        write_parquet_batch(writer, buffer)
+                        buffer.clear()
 
-        metadata = load_metadata(cache_root, source_name)
-        metadata.cleaning = StageResult(
-            ok=True,
-            num_records=num_output,
-            duration_sec=round(duration, 2),
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        save_metadata(cache_root, metadata)
+                pbar.update(n_in)
 
-        logger.info(
-            "[%s] Завершено: %d -> %d записей за %.1f сек (отсев %.1f%%)",
-            source_name,
-            num_input,
-            num_output,
-            duration,
-            (1 - num_output / max(num_input, 1)) * 100,
-        )
-        return source_name, True, num_input, num_output
+                # refill pipeline
+                try:
+                    batch = next(batch_iter)
+                    fut_new, n_new = submit(batch)
+                    futures.append((fut_new, n_new))
 
-    except Exception as e:
-        logger.error("[%s] Ошибка при очистке: %s", source_name, e, exc_info=True)
+                except StopIteration:
+                    continue
 
-        metadata = load_metadata(cache_root, source_name)
-        metadata.cleaning = StageResult(ok=False)
-        save_metadata(cache_root, metadata)
+    if buffer and writer:
+        write_parquet_batch(writer, buffer)
 
-        return source_name, False, num_input, num_output
+    if writer:
+        writer.close()
+
+    meta = load_metadata(cache_root, source_name)
+
+    meta.cleaning = StageResult(
+        ok=True,
+        num_records=num_out,
+        duration_sec=round(time.time() - start_time, 2),
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        languages=sorted(langs),
+    )
+
+    save_metadata(cache_root, meta)
+
+    return source_name, True, num_in, num_out
 
 
 def run_clean_stage(
@@ -159,72 +189,110 @@ def run_clean_stage(
     config: dict,
 ) -> dict:
     """
-    Этап 2: Clean — параллельная очистка и валидация данных.
+    Этап 2: Clean — последовательная очистка и валидация данных.
     """
-    cache_root = config.get("cache_root", "cache")
-    max_workers = config.get("max_workers", 4)
+    cache_root = config.get("cache", {}).get("root", "cache")
     force = config.get("force", False)
 
     logger.info("=" * 50)
     logger.info("Этап 2: Clean — очистка и валидация")
     logger.info("Источников всего: %d", len(sources))
-    logger.info("Max workers: %d", max_workers)
     logger.info("Force: %s", force)
-    logger.debug("Параметры очистки: %s", config.get("cleaners", {}))
+    logger.debug(
+        "Параметры очистки: %s",
+        config.get("cleaners", {}),
+    )
 
-    # Фильтруем: оставляем только те, что ещё не очищены и имеют raw.parquet
     pending = []
     skipped = []
+
     for name in sources:
         raw_path = Path(cache_root) / name / "raw.parquet"
+
         if not raw_path.exists():
-            logger.warning("[%s] raw.parquet не найден, пропущен. Запустите этап 1.", name)
+            logger.warning(
+                "[%s] raw.parquet не найден, пропущен. "
+                "Запустите этап 1.",
+                name,
+            )
             continue
 
-        if not force and is_stage_done(cache_root, name, "cleaning"):
+        if not force and is_stage_done(
+            cache_root,
+            name,
+            "cleaning",
+        ):
             metadata = load_metadata(cache_root, name)
-            existing = metadata.cleaning.num_records if metadata.cleaning else 0
+
+            existing = (
+                metadata.cleaning.num_records
+                if metadata.cleaning
+                else 0
+            )
+
             skipped.append((name, existing))
+
         else:
             pending.append(name)
 
     if skipped:
-        logger.info("Пропущено (уже очищено): %d источников", len(skipped))
+        logger.info(
+            "Пропущено (уже очищено): %d источников",
+            len(skipped),
+        )
+
         for name, count in skipped:
-            logger.info("  [%s] %d записей в кеше", name, count)
+            logger.info(
+                "  [%s] %d записей в кеше",
+                name,
+                count,
+            )
 
     if not pending:
         logger.info("Нет источников для очистки.")
         return {}
 
-    # Суммируем общее количество строк для прогресс-бара
-    total_rows = sum(
-        count_rows(str(Path(cache_root) / name / "raw.parquet"))
-        for name in pending
+    logger.info(
+        "Источников к очистке: %d",
+        len(pending),
     )
-    logger.info("Источников к очистке: %d, всего записей: %d", len(pending), total_rows)
 
     results = {}
 
-    with tqdm(total=total_rows, desc="Очистка", unit="записей") as pbar:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _clean_single_source, name, registry, config, pbar
-                ): name
-                for name in pending
-            }
+    with tqdm(
+        total=len(pending),
+        desc="Источники",
+        unit="src",
+    ) as overall_pbar:
 
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    source_name, success, num_input, num_output = future.result()
-                    if success:
-                        results[source_name] = {"input": num_input, "output": num_output}
-                except Exception as e:
-                    logger.error(
-                        "[%s] Неожиданная ошибка в потоке: %s", name, e, exc_info=True
-                    )
+        for name in pending:
+            try:
+                (
+                    source_name,
+                    success,
+                    num_input,
+                    num_output,
+                ) = _clean_single_source(
+                    name,
+                    registry,
+                    config,
+                )
+
+                if success:
+                    results[source_name] = {
+                        "input": num_input,
+                        "output": num_output,
+                    }
+
+            except Exception as e:
+                logger.error(
+                    "[%s] Ошибка при обработке источника: %s",
+                    name,
+                    e,
+                    exc_info=True,
+                )
+
+            overall_pbar.update(1)
 
     logger.info(
         "Этап 2 завершён: успешно %d/%d источников",

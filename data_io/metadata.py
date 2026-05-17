@@ -41,7 +41,9 @@ def load_metadata(cache_root: str, source_name: str) -> SourceMetadata:
             num_records=r.get("num_records", 0),
             duration_sec=r.get("duration_sec", 0.0),
             finished_at=r.get("finished_at", ""),
+            languages=r.get("languages", []),
         )
+
 
     cleaning = None
     if data.get("cleaning"):
@@ -51,6 +53,7 @@ def load_metadata(cache_root: str, source_name: str) -> SourceMetadata:
             num_records=c.get("num_records", 0),
             duration_sec=c.get("duration_sec", 0.0),
             finished_at=c.get("finished_at", ""),
+            languages=r.get("languages", []),
         )
 
     return SourceMetadata(
@@ -73,7 +76,9 @@ def save_metadata(cache_root: str, metadata: SourceMetadata) -> None:
             "num_records": metadata.raw_extraction.num_records,
             "duration_sec": metadata.raw_extraction.duration_sec,
             "finished_at": metadata.raw_extraction.finished_at,
+            "languages": metadata.raw_extraction.languages,
         }
+
 
     if metadata.cleaning:
         data["cleaning"] = {
@@ -81,6 +86,7 @@ def save_metadata(cache_root: str, metadata: SourceMetadata) -> None:
             "num_records": metadata.cleaning.num_records,
             "duration_sec": metadata.cleaning.duration_sec,
             "finished_at": metadata.cleaning.finished_at,
+            "languages": metadata.cleaning.languages,
         }
 
     with open(path, "w", encoding="utf-8") as f:
