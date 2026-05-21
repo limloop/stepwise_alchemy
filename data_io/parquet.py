@@ -5,7 +5,7 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, List
 
 from utils.logging_setup import get_logger
 
@@ -177,6 +177,21 @@ def read_parquet(
         for row in table.to_pylist():
             yield row
 
+def read_parquet_full(input_path: str) -> List[dict]:
+    """
+    Чтение parquet целиком в ram.
+    """
+
+    try:
+        table = pq.read_table(input_path)
+        result = table.to_pylist()
+        
+        return result
+        
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Файл не найден: {input_path}")
+    except Exception as e:
+        raise Exception(f"Ошибка при чтении Parquet файла: {str(e)}")
 
 def count_rows(parquet_path: str) -> int:
     """Возвращает количество строк в Parquet-файле."""

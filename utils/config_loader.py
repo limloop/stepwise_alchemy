@@ -44,25 +44,83 @@ DEFAULT_CONFIG = {
     },
     "assembly": {
         "output_dir": "output",
-        "tokenizer": "microsoft/Phi-3.5-mini-instruct",
-        "shuffle": True,
+
         "seed": 42,
-        "max_total_tokens": None,
-        "chat": {
-            "min_messages": 2,
-            "max_tokens": 4096,
-            "apply_chat_template": False,
+
+        "shuffle": {
+            "enabled": True,
+            "global_shuffle": True,
+            "index_file": "shuffle.idx",
         },
-        "text": {
-            "chunk_sizes": [64, 128, 256, 512],
-            "stride": 448,
-            "min_tokens": 64,
-            "chunking": "fixed",
+        "chunking": {
+            # target chunk size
+            "target_tokens": 512,
+
+            # overlap
+            "stride_tokens": 448,
+
+            # approximate tokenizer heuristic
+            "chars_per_token": 3.0,
+
+            # per-language overrides
+            "chars_per_token_by_lang": {},
+
+            # safety multiplier
+            "safety_margin": 1.15,
+
+            # hard limits
+            "min_chunk_chars": 100,
+            "max_chunk_chars": 32000,
+
+            # limit chunks from one source text
+            "max_chunks_per_document": 24,
+
+            # boundary refinement
+            "boundary_refinement": {
+                "enabled": True,
+                "tokenizer": "microsoft/Phi-3.5-mini-instruct",
+                "max_refinement_tokens": 1024,
+            },
+        },
+        "cache_build": {
+            # temporary chunk cache
+            "enabled": True,
+
+            # shard size
+            "target_shard_size_mb": 1024,
+
+            # rewrite final dataset
+            "rewrite_final_dataset": True,
+
+            # remove temporary cache
+            "cleanup_after_finalize": True,
+        },
+        "storage": {
+            # "text" | "tokens" | "both"
+            "format": "text",
+
+            # save token ids
+            "store_token_ids": False,
+
+            # save original text
+            "store_text": True,
+
+            # compression
+            "compression": "zstd",
         },
         "mixing": {
             "base_tier": 1,
+
             "sources": {}
-        }
+        },
+        "output": {
+
+            # final shard size
+            "target_shard_size_mb": 1024,
+
+            # parquet row group size
+            "row_group_size": 10000,
+        },
     }
 }
 

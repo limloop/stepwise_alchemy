@@ -5,40 +5,108 @@
 import unicodedata
 
 from cleaners.patterns import (
-    CONTROL_CHARS,
     SPECIAL_TOKENS,
     URL_EMAIL,
-    EMPTY_BRACKETS,
-    EMPTY_QUOTES,
-    MULTISPACE,
-    MULTINEWLINE
+    CONTROL_CHARS,
+    TECHNICAL,
+    EXTREME_REPEAT,
+    MULTI_SPACES,
+    MULTI_NEWLINES,
+    EMPTY_QUOTES_BRACKETS,
+    LONELY_QUOTES_BRACKETS,
+    SPACE_BEFORE_PUNCT,
+    SPACE_AFTER_PUNCT,
+    DOT_SPACE,
+    DASH_SPACE
 )
-from utils.logging_setup import get_logger
 
-logger = get_logger("cleaners.text_cleaner")
+from cleaners.validators import is_probably_garbage
+
+
+MAX_TEXT_LEN = 100_000
+
 
 def clean_text(text: str) -> str:
+    """
+    Structural cleanup текста.
+
+    Цель:
+    - убрать технический шум
+    - нормализовать пунктуацию
+    - уменьшить structural entropy
+    - не уничтожать естественный шум полностью
+    """
+
     if not text:
         return ""
+
+    # ---------------------------------------------------------
+    # Hard limit
+    # ---------------------------------------------------------
+
+    if len(text) > MAX_TEXT_LEN:
+        return ""
+
+    # ---------------------------------------------------------
+    # Быстрая проверка мусора ДО regex
+    # ---------------------------------------------------------
+
+    if is_probably_garbage(text):
+        return ""
+
+    # ---------------------------------------------------------
+    # Unicode normalization
+    # ---------------------------------------------------------
 
     text = unicodedata.normalize("NFKC", text)
 
-    # быстрый reject мусора
-    text = CONTROL_CHARS.sub('', text)
-    text = SPECIAL_TOKENS.sub('', text)
+    # ---------------------------------------------------------
+    # Базовая очистка
+    # ---------------------------------------------------------
 
-    if not text:
-        return ""
+    text = SPECIAL_TOKENS.sub("", text)
+    text = URL_EMAIL.sub("", text)
+    text = CONTROL_CHARS.sub("", text)
+    text = TECHNICAL.sub("", text)
 
-    # структурные артефакты
-    text = URL_EMAIL.sub('', text)
+    # ---------------------------------------------------------
+    # Structural cleanup
+    # ---------------------------------------------------------
 
-    # удаление пустых конструкций
-    text = EMPTY_BRACKETS.sub('', text)
-    text = EMPTY_QUOTES.sub('', text)
+    # ♥♥♥♥♥♥♥♥ -> ♥♥♥
+    text = EXTREME_REPEAT.sub(
+        lambda m: m.group(1) * 3,
+        text,
+    )
 
-    # нормализация whitespace
-    text = MULTISPACE.sub(' ', text)
-    text = MULTINEWLINE.sub('\n\n', text)
+    # ---------------------------------------------------------
+    # Пустые структуры
+    # ---------------------------------------------------------
+
+    text = EMPTY_QUOTES_BRACKETS.sub("", text)
+    text = LONELY_QUOTES_BRACKETS.sub(" ", text)
+
+    # ---------------------------------------------------------
+    # Пунктуация
+    # ---------------------------------------------------------
+
+    # "странами , но" -> "странами, но"
+    text = SPACE_BEFORE_PUNCT.sub(r"\1", text)
+
+    # "ниндзя;броня" -> "ниндзя; броня"
+    text = SPACE_AFTER_PUNCT.sub(r"\1 \2", text)
+
+    # "там...Но" -> "там... Но"
+    text = DOT_SPACE.sub(r"\1 \2", text)
+
+    # "-Эм" -> "- Эм"
+    text = DASH_SPACE.sub(r"\1 \2", text)
+
+    # ---------------------------------------------------------
+    # Финальная нормализация
+    # ---------------------------------------------------------
+
+    text = MULTI_SPACES.sub(" ", text)
+    text = MULTI_NEWLINES.sub("\n", text)
 
     return text.strip()
