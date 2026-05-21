@@ -115,10 +115,11 @@ def resolve_mixing_plan(cfg, registry: SourceRegistry, cache_root: str) -> Dict[
         if not rule:
             plan[name] = None
             continue
-        if rule.get("use_all"):
+
+        if rule.use_all:
             plan[name] = None
-        elif "proportion" in rule:
-            plan[name] = int(base_total * rule["proportion"])
+        elif rule.proportion is not None:
+            plan[name] = int(base_total * rule.proportion)
         else:
             plan[name] = None
 

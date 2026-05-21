@@ -120,6 +120,7 @@ class ShuffleConfig:
     shuffle_within_shard: bool = True
 
     export_batch_size: int = 100_000
+    buffer_size: int = 10000
 
     index_file: str = "shuffle.idx"
 

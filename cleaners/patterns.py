@@ -107,7 +107,7 @@ DOT_SPACE = re.compile(
 
 # тире без пробела
 DASH_SPACE = re.compile(
-    r'([—\-])([^\s])'
+    r'^([—\-])([^\s])'
 )
 
 # код
