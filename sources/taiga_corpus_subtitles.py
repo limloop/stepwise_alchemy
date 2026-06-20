@@ -20,8 +20,10 @@ class TaigaSubtitlesSource(BaseSource):
         for lang in languages:
             # Загружаем split для каждого языка отдельно
             ds = load_dataset(
-                "Fascinat0r/taiga_corpus_subtitles", 
-                split=lang
+                "Fascinat0r/taiga_corpus_subtitles",
+                revision="refs/convert/parquet",
+                split=lang,
+                streaming=True  # Не загружаем всё в память сразу
             )
             
             current_file_id = None

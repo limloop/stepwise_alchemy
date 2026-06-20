@@ -72,8 +72,10 @@ class WikipediaSource(BaseSource):
                 # Загружаем датасет в streaming режиме
                 ds = load_dataset(
                     "wikimedia/wikipedia", 
-                    subset_name, 
-                    split="train"
+                    subset_name,
+                    revision="refs/convert/parquet",
+                    split="train",
+                    streaming=True  # Не загружаем всё в память сразу
                 )
                 
                 # Получаем маркеры для текущего языка

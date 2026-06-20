@@ -17,7 +17,12 @@ class StoriesOhProblemSource(BaseSource):
         - prompt_problem_solving_story дедуплицируется через set хешей
         - уникальные истории записываются как отдельные записи
         """
-        ds = load_dataset("loubnabnl/stories_oh_problem", split="train")
+        ds = load_dataset(
+            "loubnabnl/stories_oh_problem",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         # Set для хранения хешей уже обработанных prompt_problem_solving_story
         seen_hashes = set()

@@ -13,7 +13,12 @@ class FantasyBodyInteractionsSource(BaseSource):
         Загружает датасет с описаниями телесных взаимодействий.
         Берет только поле text (сгенерированный текст).
         """
-        ds = load_dataset("limloop/fantasy_body_interactions", split="train")
+        ds = load_dataset(
+            "limloop/fantasy_body_interactions",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         for example in ds:
             text = example.get("text", "").strip()

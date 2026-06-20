@@ -13,7 +13,12 @@ class ChemistryBookshelvesSource(BaseSource):
         Загружает датасет с учебниками по химии.
         Возвращает только текст из поля 'text' (длиннее 100 символов).
         """
-        ds = load_dataset("chemNLP/chemistry-bookshelves-merged", split="train")
+        ds = load_dataset(
+            "chemNLP/chemistry-bookshelves-merged",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         for example in ds:
             text = example.get("text", "").strip()

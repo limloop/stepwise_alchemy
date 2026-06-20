@@ -17,7 +17,12 @@ class RuEnStoryPairsSource(BaseSource):
         - summary_ru (русское краткое содержание)
         - summary_en (английское краткое содержание)
         """
-        ds = load_dataset("limloop/ru_en_story_pairs", split="train")
+        ds = load_dataset(
+            "limloop/ru_en_story_pairs",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         for example in ds:
             # Русский рассказ

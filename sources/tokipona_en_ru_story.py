@@ -13,7 +13,12 @@ class TokEnStoryPairsSource(BaseSource):
         Загружает датасет с параллельными английскими-токипона историями.
         Возвращает токипона перевод для каждого примера, так как истории есть в ru_en_story_pairs
         """
-        ds = load_dataset("limloop/tokipona_en_ru_story", split="train")
+        ds = load_dataset(
+            "limloop/tokipona_en_ru_story",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         for example in ds:
             # Русский рассказ

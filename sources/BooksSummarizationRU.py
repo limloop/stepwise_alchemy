@@ -16,7 +16,12 @@ class BooksSummarizationRUSource(BaseSource):
         - суммаризацию (summary)
         Все тексты на русском языке.
         """
-        ds = load_dataset("slon-hk/BooksSummarizationRU", split="train")
+        ds = load_dataset(
+            "slon-hk/BooksSummarizationRU",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         for example in ds:
             full_text = example.get("Full Text", "").strip()

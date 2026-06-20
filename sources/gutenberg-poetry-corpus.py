@@ -14,7 +14,12 @@ class GutenbergPoetrySource(BaseSource):
         Собирает строки (line) в одну книгу, пока gutenberg_id не изменится.
         Использует потоковую обработку, не хранит все книги в памяти.
         """
-        ds = load_dataset("biglam/gutenberg-poetry-corpus", split="train")
+        ds = load_dataset(
+            "biglam/gutenberg-poetry-corpus",
+            revision="refs/convert/parquet",
+            split="train",
+            streaming=True  # Не загружаем всё в память сразу
+        )
         
         current_id = None
         current_lines = []
