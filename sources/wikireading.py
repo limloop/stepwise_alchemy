@@ -16,9 +16,10 @@ class WikiReadingSource(BaseSource):
     quality_tier = 2
     content_type = "text"
 
-    DATA_DIR = Path("/home/arsen/.cache/huggingface/hub/datasets--its5Q--wikireading/snapshots/57c31af8c778c9f2f941665e8767e26e623bf5a9")
-
     MIN_TEXT_LEN = 100
+    
+    # ВНИМАНИЕ! Укажите правильный путь к файлам датасета wikireading!
+    DATA_DIR = Path("your_path")  # <-- ИЗМЕНИТЕ!
 
     def _iter_zst_file(self, path: Path):
         """
@@ -63,13 +64,18 @@ class WikiReadingSource(BaseSource):
         zst -> json -> detect -> yield
 
         RAM usage ≈ constant.
+        
+        ВНИМАНИЕ! Перед использованием:
+        1. Проверьте, что DATA_DIR указывает на правильную папку с .jsonl.zst файлами
+        2. Или переопределите DATA_DIR при создании экземпляра класса
         """
 
         zst_files = sorted(self.DATA_DIR.glob("*.jsonl.zst"))
 
         if not zst_files:
             raise FileNotFoundError(
-                f"No .jsonl.zst files found in {self.DATA_DIR}"
+                f"No .jsonl.zst files found in {self.DATA_DIR}\n"
+                "Please update WikiReadingSource.DATA_DIR with the correct path"
             )
 
         file_pbar = tqdm(
