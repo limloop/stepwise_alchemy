@@ -19,7 +19,6 @@ class StoriesOhProblemSource(BaseSource):
         """
         ds = load_dataset(
             "loubnabnl/stories_oh_problem",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )

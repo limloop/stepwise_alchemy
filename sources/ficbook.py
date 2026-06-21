@@ -21,7 +21,6 @@ class FicbookSource(BaseSource):
         # Загружаем датасет из правильной ветки с parquet-файлами
         ds = load_dataset(
             "IlyaGusev/ficbook",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )

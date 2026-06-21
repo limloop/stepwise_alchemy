@@ -18,7 +18,6 @@ class BooksSummarizationRUSource(BaseSource):
         """
         ds = load_dataset(
             "slon-hk/BooksSummarizationRU",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )

@@ -24,7 +24,6 @@ class WikiReadingSource(BaseSource):
         # Загружаем датасет с Hugging Face
         ds = load_dataset(
             "its5Q/wikireading",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Потоковая загрузка
         )

@@ -15,7 +15,6 @@ class TokEnStoryPairsSource(BaseSource):
         """
         ds = load_dataset(
             "limloop/tokipona_en_ru_story",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )

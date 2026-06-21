@@ -16,7 +16,6 @@ class GutenbergPoetrySource(BaseSource):
         """
         ds = load_dataset(
             "biglam/gutenberg-poetry-corpus",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )

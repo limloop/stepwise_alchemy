@@ -15,7 +15,6 @@ class ChemistryBookshelvesSource(BaseSource):
         """
         ds = load_dataset(
             "chemNLP/chemistry-bookshelves-merged",
-            revision="refs/convert/parquet",
             split="train",
             streaming=True  # Не загружаем всё в память сразу
         )
