@@ -73,7 +73,6 @@ class WikipediaSource(BaseSource):
                 ds = load_dataset(
                     "wikimedia/wikipedia", 
                     subset_name,
-                    revision="refs/convert/parquet",
                     split="train",
                     streaming=True  # Не загружаем всё в память сразу
                 )
